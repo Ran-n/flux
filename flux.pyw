@@ -2,7 +2,7 @@
 """
 Authors: Ran# <ran.hash@proton.me>
 Created: 2025/10/15 12:12:12.120092
-Revised: 2026/04/21 15:38:51.601383
+Revised: 2026/04/21 18:45:24.646268
 """
 
 import contextlib
@@ -17,7 +17,7 @@ from pathlib import Path
 import pyperclip
 import qrcode
 from PIL import Image
-from PyQt6.QtCore import QByteArray, QEasingCurve, QPropertyAnimation, Qt, QTimer
+from PyQt6.QtCore import QByteArray, QEasingCurve, QEvent, QPropertyAnimation, QSettings, Qt, QTimer
 from PyQt6.QtGui import QCursor, QIcon, QImage, QPainter, QPixmap
 from PyQt6.QtSvg import QSvgRenderer
 from PyQt6.QtWidgets import (
@@ -105,6 +105,14 @@ _SVG_BODIES = {
         '<line x1="1" y1="1" x2="23" y2="23"/>'
     ),
     "x": ('<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>'),
+    "lock": (
+        '<rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>'
+        '<path d="M7 11V7a5 5 0 0 1 10 0v4"/>'
+    ),
+    "lock_open": (
+        '<rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>'
+        '<path d="M7 11V7a5 5 0 0 1 9.9-1"/>'
+    ),
 }
 
 
@@ -259,6 +267,14 @@ def build_stylesheet(c: dict) -> str:
     }}
     QPushButton#icon_btn:hover   {{ background-color: {c["btn_hov"]}; }}
     QPushButton#icon_btn:pressed {{ background-color: {c["btn_act"]}; }}
+    QPushButton#icon_btn_active {{
+        background-color: {c["accent"]};
+        border: none;
+        border-radius: 5px;
+        padding: 3px;
+    }}
+    QPushButton#icon_btn_active:hover   {{ background-color: {c["accent_hov"]}; }}
+    QPushButton#icon_btn_active:pressed {{ background-color: {c["accent_act"]}; }}
     QPushButton#accent {{
         background-color: {c["accent"]};
         color: #ffffff;
@@ -343,8 +359,15 @@ class FullTextDialog(QDialog):
     def mouseReleaseEvent(self, e):
         self._drag_pos = None
 
+    def changeEvent(self, e):
+        if e.type() == QEvent.Type.ActivationChange and not self.isActiveWindow():
+            pinned = self.parent()._pinned if self.parent() else False
+            if not pinned:
+                self.close()
+        super().changeEvent(e)
+
     def keyPressEvent(self, e):
-        if e.key() == Qt.Key.Key_Escape:
+        if e.key() in (Qt.Key.Key_Escape, Qt.Key.Key_Q):
             self.close()
 
 
@@ -358,9 +381,12 @@ class FluxWindow(QWidget):
         self.qr_img = qr_img
         self.qr_error = qr_error
 
-        self.dark_mode: bool = True
-        self.text_visible: bool = False
+        self._settings = QSettings("flux", "flux")
+        self.dark_mode: bool = self._settings.value("dark_mode", True, type=bool)
+        self.text_visible: bool = self._settings.value("text_visible", False, type=bool)
+        self._pinned: bool = self._settings.value("pinned", False, type=bool)
         self._drag_pos = None
+        self._opening_child = False
 
         self.setWindowFlags(
             Qt.WindowType.Window
@@ -420,6 +446,10 @@ class FluxWindow(QWidget):
         self._btn_theme = _icon_btn("sun", DARK["text_dim"])
         self._btn_theme.clicked.connect(self._toggle_theme)
 
+        self._btn_pin = _icon_btn("lock_open", DARK["text_dim"])
+        self._btn_pin.setToolTip("Pin: keep open when focus is lost")
+        self._btn_pin.clicked.connect(self._toggle_pin)
+
         self._btn_close = _icon_btn("x", DARK["text_dim"])
         self._btn_close.clicked.connect(self.close)
 
@@ -427,6 +457,7 @@ class FluxWindow(QWidget):
         bar.addWidget(title)
         bar.addStretch()
         bar.addWidget(self._btn_theme)
+        bar.addWidget(self._btn_pin)
         bar.addWidget(self._btn_close)
         root.addLayout(bar)
 
@@ -436,13 +467,17 @@ class FluxWindow(QWidget):
 
         self._lbl_clip = QLabel(objectName="preview")
         self._lbl_clip.setFixedWidth(WINDOW_W - 14 * 2 - 40)
+        self._lbl_clip.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self._lbl_clip.mousePressEvent = (
+            lambda e: self._show_full_text()
+            if e.button() == Qt.MouseButton.LeftButton and self.text_visible
+            else None
+        )
 
         self._btn_eye = _icon_btn("eye", DARK["text_dim"])
-        self._btn_eye.setToolTip("Show/hide  •  Right-click for full text")
+        self._btn_eye.setToolTip("Show/hide  •  Click label for full text")
         self._btn_eye.setFixedSize(30, 26)
         self._btn_eye.clicked.connect(self._toggle_text)
-        self._btn_eye.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self._btn_eye.customContextMenuRequested.connect(self._show_full_text)
 
         clip_row.addWidget(self._lbl_clip, stretch=1)
         clip_row.addWidget(self._btn_eye)
@@ -450,8 +485,9 @@ class FluxWindow(QWidget):
 
         # --- QR area ---
         if self.qr_img:
+            qr_w = self.qr_img.width + 16  # image width + 8px padding each side
             qr_frame = QFrame(objectName="qr_frame")
-            qr_frame.setFixedWidth(WINDOW_W - 28)
+            qr_frame.setFixedWidth(qr_w)
             qr_layout = QVBoxLayout(qr_frame)
             qr_layout.setContentsMargins(8, 8, 8, 8)
             qr_layout.setSpacing(0)
@@ -459,20 +495,16 @@ class FluxWindow(QWidget):
             self._lbl_qr = QLabel()
             self._lbl_qr.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self._lbl_qr.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-            self._lbl_qr.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-            self._lbl_qr.customContextMenuRequested.connect(self._copy_qr)
-            self._lbl_qr.setToolTip("Right-click or click button to copy QR as image")
+            self._lbl_qr.setToolTip("Right-click to copy QR as image")
+            self._lbl_qr.mousePressEvent = self._lbl_qr_mouse_press
             self._set_qr_pixmap()
             qr_layout.addWidget(self._lbl_qr, alignment=Qt.AlignmentFlag.AlignCenter)
 
             root.addWidget(qr_frame, alignment=Qt.AlignmentFlag.AlignCenter)
 
-            copy_row = QHBoxLayout()
-            copy_row.setSpacing(6)
-
             self._lbl_status = QLabel("")
-            self._lbl_status.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-            self._lbl_status.setFixedHeight(22)
+            self._lbl_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self._lbl_status.setFixedHeight(18)
 
             self._status_effect = QGraphicsOpacityEffect(self._lbl_status)
             self._lbl_status.setGraphicsEffect(self._status_effect)
@@ -485,20 +517,18 @@ class FluxWindow(QWidget):
             self._status_timer.setSingleShot(True)
             self._status_timer.timeout.connect(self._fade_out_status)
 
-            btn_copy = QPushButton("Copy QR")
-            btn_copy.setObjectName("accent")
-            btn_copy.setFixedHeight(30)
-            btn_copy.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-            btn_copy.clicked.connect(self._copy_qr)
-
-            copy_row.addWidget(self._lbl_status, stretch=1)
-            copy_row.addWidget(btn_copy)
-            root.addLayout(copy_row)
+            root.addWidget(self._lbl_status)
         else:
             lbl_err = QLabel(self.qr_error or "No QR code.", objectName="error")
             lbl_err.setWordWrap(True)
             lbl_err.setAlignment(Qt.AlignmentFlag.AlignCenter)
             root.addWidget(lbl_err)
+
+    def _lbl_qr_mouse_press(self, e):
+        if e.button() == Qt.MouseButton.RightButton:
+            self._copy_qr()
+        elif e.button() == Qt.MouseButton.LeftButton:
+            self._drag_pos = e.globalPosition().toPoint() - self.frameGeometry().topLeft()
 
     def _set_qr_pixmap(self):
         img = self.qr_img.convert("RGBA")
@@ -521,6 +551,7 @@ class FluxWindow(QWidget):
         self._refresh_clip_label()
         self._btn_close.setIcon(_svg_icon("x", c["text_dim"]))
         self._btn_eye.setIcon(_svg_icon("eye" if not self.text_visible else "eye_off", c["text_dim"]))
+        self._refresh_pin_btn()
 
     def _refresh_clip_label(self):
         if self.text_visible:
@@ -540,6 +571,26 @@ class FluxWindow(QWidget):
         self.dark_mode = not self.dark_mode
         self._apply_theme()
 
+    def _toggle_pin(self):
+        self._pinned = not self._pinned
+        self._refresh_pin_btn()
+        if not self._pinned:
+            for w in self.findChildren(QDialog):
+                w.close()
+
+    def _refresh_pin_btn(self):
+        c = DARK if self.dark_mode else LIGHT
+        if self._pinned:
+            self._btn_pin.setObjectName("icon_btn_active")
+            self._btn_pin.setIcon(_svg_icon("lock", "#ffffff"))
+            self._btn_pin.setToolTip("Pinned: will stay open")
+        else:
+            self._btn_pin.setObjectName("icon_btn")
+            self._btn_pin.setIcon(_svg_icon("lock_open", c["text_dim"]))
+            self._btn_pin.setToolTip("Pin: keep open when focus is lost")
+        self._btn_pin.style().unpolish(self._btn_pin)
+        self._btn_pin.style().polish(self._btn_pin)
+
     # --- Text visibility ---
 
     def _toggle_text(self):
@@ -550,8 +601,10 @@ class FluxWindow(QWidget):
         self.adjustSize()
 
     def _show_full_text(self):
+        self._opening_child = True
         dlg = FullTextDialog(self.clip_text, DARK if self.dark_mode else LIGHT, self)
-        dlg.exec()
+        self._opening_child = False
+        dlg.show()
 
     # --- QR copy ---
 
@@ -605,12 +658,28 @@ class FluxWindow(QWidget):
     def mouseReleaseEvent(self, e):
         self._drag_pos = None
 
+    def changeEvent(self, e):
+        if (
+            e.type() == QEvent.Type.ActivationChange
+            and not self.isActiveWindow()
+            and not self._pinned
+            and not self._opening_child
+            and self._focus_attempts >= 5
+        ):
+            active = QApplication.activeWindow()
+            if active is None or (active is not self and active.parent() is not self):
+                self.close()
+        super().changeEvent(e)
+
     def keyPressEvent(self, e):
-        if e.key() == Qt.Key.Key_Escape:
+        if e.key() in (Qt.Key.Key_Escape, Qt.Key.Key_Q):
             self.close()
 
     def closeEvent(self, e):
         self._autofocus_timer.stop()
+        self._settings.setValue("dark_mode", self.dark_mode)
+        self._settings.setValue("pinned", self._pinned)
+        self._settings.setValue("text_visible", self.text_visible)
         super().closeEvent(e)
         QApplication.quit()
 
@@ -637,14 +706,14 @@ if __name__ == "__main__":
         qr_error: str | None = None
 
         if not text:
-            qr_error = "Clipboard is empty or contains no text."
+            qr_error = "Clipboard is empty."
         else:
             try:
                 qr_img = gen.generate(text)
-            except qrcode.exceptions.DataOverflowError:
-                qr_error = "Text exceeds QR code capacity (~2,953 bytes for UTF-8)."
-            except Exception:
-                qr_error = "Failed to generate QR code."
+            except (qrcode.exceptions.DataOverflowError, ValueError):
+                qr_error = f"Text is too long for a QR code ({len(text.encode())} / 2,953 bytes)."
+            except Exception as exc:
+                qr_error = f"Could not generate QR code: {exc}"
 
         win = FluxWindow(text, qr_img, qr_error)
         code = app.exec()
