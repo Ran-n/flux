@@ -2,7 +2,7 @@
 """
 Authors: Ran# <ran.hash@proton.me>
 Created: 2025/10/15 12:12:12.120092
-Revised: 2026/04/21 14:14:22.326677
+Revised: 2026/04/21 15:38:51.601383
 """
 
 import contextlib
@@ -33,7 +33,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-ICON_PATH = Path(__file__).parent / "media" / "icon.png"
+_BASE = Path(getattr(sys, "_MEIPASS", Path(__file__).parent))
+ICON_PATH = _BASE / "media" / "icon.png"
 
 DARK = {
     "bg": "#0f0f17",
@@ -361,7 +362,13 @@ class FluxWindow(QWidget):
         self.text_visible: bool = False
         self._drag_pos = None
 
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
+        self.setWindowFlags(
+            Qt.WindowType.Window
+            | Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowStaysOnTopHint
+        )
+        if ICON_PATH.exists():
+            self.setWindowIcon(QIcon(str(ICON_PATH)))
         self.setFixedWidth(WINDOW_W)
 
         self._build_ui()
@@ -640,8 +647,6 @@ if __name__ == "__main__":
                 qr_error = "Failed to generate QR code."
 
         win = FluxWindow(text, qr_img, qr_error)
-        if ICON_PATH.exists():
-            win.setWindowIcon(QIcon(str(ICON_PATH)))
         code = app.exec()
         os._exit(code)
     except Exception:
