@@ -1,7 +1,7 @@
 [//]: # ( ---------------------------------------------------------------------- )
 [//]: # (+ Authors: 	Ran# <ran.hash@proton.me> )
 [//]: # (+ Created: 	2026/04/21 08:57:11.157825 )
-[//]: # (+ Revised: 	2026/04/21 15:45:23.468064 )
+[//]: # (+ Revised: 	2026/04/21 18:49:57.564948 )
 [//]: # ( ---------------------------------------------------------------------- )
 
 # flux
@@ -16,10 +16,11 @@ The name fits the tool: one fluid motion from clipboard to phone, with nothing i
 
 ## Features
 
-- Clipboard text hidden by default — toggle visibility with the eye button
-- Right-click the eye button to view the full text in a popup
-- Right-click the QR code to copy it to the clipboard as an image
-- Auto-closes on focus loss
+- Clipboard text hidden by default — toggle with the eye button; click the label to view full text in a popup
+- Right-click the QR code to copy it as an image
+- Pin button keeps the window open on focus loss
+- Dark / light theme toggle, persisted across sessions
+- Frameless, draggable window; auto-closes on focus loss when unpinned
 
 ## Limits
 
@@ -42,7 +43,7 @@ uv sync
 
 **pip**
 ```
-pip install pyperclip qrcode Pillow pywin32
+pip install pyperclip qrcode Pillow PyQt6 pywin32
 ```
 
 **pipenv**
