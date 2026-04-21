@@ -67,3 +67,7 @@ pythonw flux.pyw
 ```
 
 > On Linux/macOS `python flux.pyw` works fine; the process detaches naturally via the event loop.
+
+## TODO
+
+- **`make_icon.py`** — verify that all sizes embed correctly in the `.ico` file; some Windows contexts (Explorer, taskbar, alt-tab) pick specific sizes and the current Pillow `save()` call may not embed them reliably. Investigate using an external tool (e.g. `magick convert` via ImageMagick) or a dedicated `.ico` library to guarantee all nine size frames are present and correct.
