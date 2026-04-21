@@ -2,7 +2,7 @@
 """
 Authors: Ran# <ran.hash@proton.me>
 Created: 2026/04/21 13:15:54.371216
-Revised: 2026/04/21 13:15:54.371216
+Revised: 2026/04/21 15:42:15.166137
 """
 
 import os
@@ -34,11 +34,14 @@ if __name__ == "__main__":
     os.makedirs(build, exist_ok=True)
     os.makedirs(dist, exist_ok=True)
 
+    png = os.path.join(here, "media", "icon.png")
+
     cmd = [
         sys.executable, "-m", "PyInstaller",
         "--onefile",
         "--windowed",
         f"--icon={ico}",
+        f"--add-data={png}{os.pathsep}media",
         f"--name={exe_name}",
         f"--distpath={dist}",
         f"--workpath={build}",
