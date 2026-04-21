@@ -1,7 +1,7 @@
 [//]: # ( ---------------------------------------------------------------------- )
 [//]: # (+ Authors: 	Ran# <ran.hash@proton.me> )
 [//]: # (+ Created: 	2026/04/21 08:57:11.157825 )
-[//]: # (+ Revised: 	2026/04/21 18:49:57.564948 )
+[//]: # (+ Revised: 	2026/04/21 19:18:32.168901 )
 [//]: # ( ---------------------------------------------------------------------- )
 
 # flux
@@ -68,3 +68,7 @@ pythonw flux.pyw
 ```
 
 > On Linux/macOS `python flux.pyw` works fine; the process detaches naturally via the event loop.
+
+## License
+
+[PayBack License (PBL) v1.0](LICENSE) — free for personal, academic, and non-commercial use. Commercial use requires a revenue-share agreement with the author. See [LICENSE](LICENSE) for full terms.
